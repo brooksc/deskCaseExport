@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+
+# this script will iterate through a desk.com instance and export all the cases to json.
+# it WILLl NOT export attachments (easy to add, but not here).
+# you MUST configure the variables under 'User configuration' below with hostname, credentials, etc.
+# you MUST `pip install requests` if you don't already have it installed.
+# this script SHOULD run on Python 2.7.x.  It was only tested on Python 2.7.10
+
+import json
+import time
+import requests
+
+# User configuration
+sitename = 'TBD'
+username = 'TBD'
+password = 'TBD'
+dir_out = "export"  # directory to write the json files to.  e.g. export/##.json
+
+# see http://dev.desk.com/API/using-the-api/#rate-limits to figure out the right value.
+# set to 1.0 / <# full time desk agents>
+sleep_time = 1.0  # time to sleep between APi calls to dodge rate limiting
+
+# end User configuration
+
+url_base = 'https://%s.desk.com' % sitename
+url_api = '%s/api/v2/' % url_base
+headers = {'Accept': 'application/json'}
+
+# iterate through all the cases including each page
+cases_url = url_api + "/cases"
+while cases_url:
+    time.sleep(sleep_time)
+    cases_results = requests.get(cases_url, headers=headers, auth=(username, password))
+    cases_body = cases_results.json()
+    try:
+        cases_url = url_base + cases_body['_links']['next']['href']
+    except TypeError, KeyError:
+        cases_url = None
+
+    for c in cases_body['_embedded']['entries']:
+        case = dict()
+        c_id = int(c['id'])
+        # if c_id != 197:
+        #     continue
+        print c_id
+        fd = open("%s/%s.json" % (dir_out, c_id), "w")
+        case[c_id] = c
+
+        # Get Message
+        message_url = '%s/cases/%s/message' % (url_api, c_id)
+        time.sleep(sleep_time)
+        message_results = requests.get(message_url, headers=headers, auth=(username, password))
+        message_body = message_results.json()
+        case['message'] = message_body
+
+        # Get all the replies
+        case['replies'] = list()
+        replies_url = '%s/cases/%s/replies' % (url_api, c_id)
+
+        time.sleep(sleep_time)
+        replies_results = requests.get(replies_url, headers=headers, auth=(username, password))
+        replies_body = replies_results.json()
+
+        for r in replies_body['_embedded']['entries']:
+            case['replies'].append(r)
+        fd.write(json.dumps(case, indent=4, sort_keys=True))
+        fd.close()
